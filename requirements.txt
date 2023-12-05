@@ -1,0 +1,5 @@
+pyannote.audio
+torch
+numpy
+python-dotenv
+notebook
