@@ -1,5 +1,5 @@
 """
-VAD for audio clips
+VAD with splitting of audio clip
 """
 
 import os
@@ -11,21 +11,21 @@ import hydra
 from omegaconf import DictConfig
 from pyannote.audio import Model
 from pyannote.audio.pipelines import VoiceActivityDetection
+from pydub import AudioSegment
 
 logging.basicConfig(
     format="%(levelname)s | %(asctime)s | %(message)s", level=logging.INFO
 )
 
 
-@hydra.main(config_path="../conf", config_name="vad")
-def get_vad_segments(cfg: DictConfig):
+def get_vad_segments(vad_model: str, audio_dir: str):
 
     logging.info("loading model...")
 
-    model = Model.from_pretrained(cfg.vad.model)
+    model = Model.from_pretrained(vad_model)
     model.to(torch.device("cuda"))
 
-    pipeline = VoiceActivityDetection(segmentation=cfg.vad.model)
+    pipeline = VoiceActivityDetection(segmentation=vad_model)
     pipeline.to(torch.device("cuda"))
 
     logging.info("loaded vad model!")
@@ -37,11 +37,11 @@ def get_vad_segments(cfg: DictConfig):
     }
     pipeline.instantiate(HYPER_PARAMETERS)
 
-    audio_files = os.listdir(cfg.vad.audio_dir)
+    audio_files = os.listdir(audio_dir)
 
     os.makedirs("/workspace/output", exist_ok=True)
     for filename in tqdm.tqdm(audio_files):
-        curr_dir = os.path.join(cfg.vad.audio_dir, filename)
+        curr_dir = os.path.join(audio_dir, filename)
         vid_name = os.path.splitext(filename)[0]
 
         with open(f"/workspace/output/{vid_name}.txt", "w") as out_file:
@@ -60,5 +60,45 @@ def get_vad_segments(cfg: DictConfig):
                 writer.writerow([segment.start, segment.end, v])
 
 
+def split_audio(out_dir: str, vad_segments: str, audio_dir: str):
+    logging.info("Splitting audio files by vad segments...")
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    for txt_file in tqdm.tqdm(os.listdir(vad_segments)):
+        audio_name = os.path.splitext(txt_file)[0]
+        audio_filepath = os.path.join(audio_dir, f"{audio_name}.wav")
+
+        audio = AudioSegment.from_wav(audio_filepath)
+        with open(os.path.join(vad_segments, txt_file), "r") as file:
+            for idx, line in enumerate(file):
+                split_line = line.split(",")
+                t1 = float(split_line[0]) * 1000  # milliseconds
+                t2 = float(split_line[1]) * 1000
+                audio_segment = audio[t1:t2]
+                new_filename = f"{audio_name}-{idx}.wav"
+
+                # export audio file to output dir
+                audio_segment.export(f"{out_dir}/{new_filename}")
+
+        # ------- uncomment if want to remove original video -----------
+        # try:
+        #     os.remove(audio_filepath)
+        #     print(f"Removed original video")
+        # except Exception as e:
+        #     print(f"Failed to remove original video, error = {e}")
+        #     continue
+
+
+@hydra.main(config_path="../conf", config_name="vad")
+def main(cfg: DictConfig):
+    get_vad_segments(vad_model=cfg.vad.model, audio_dir=cfg.vad.audio_dir)
+    split_audio(
+        out_dir=cfg.split.out_dir,
+        vad_segments=cfg.split.vad_segments,
+        audio_dir=cfg.vad.audio_dir,
+    )
+
+
 if __name__ == "__main__":
-    get_vad_segments()
+    main()
