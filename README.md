@@ -14,3 +14,14 @@ split: # step 2: split audio into vad segments
   vad_segments: /workspace/output
   out_dir: /path/to/out_dir
 ```
+
+### VAD on audio clips
+
+Inside the container, run [vad.py]('src/vad.py') script. The script (1) uses pyannote model to get VAD segments (2) splits audio in audio_dir according to these segments.
+
+VAD segments from step (1) will be saved to ./output
+
+```
+python3 src/vad.py
+```
+
