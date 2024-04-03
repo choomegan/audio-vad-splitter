@@ -22,9 +22,6 @@ def get_vad_segments(vad_model: str, audio_dir: str):
 
     logging.info("loading model...")
 
-    model = Model.from_pretrained(vad_model)
-    model.to(torch.device("cuda"))
-
     pipeline = VoiceActivityDetection(segmentation=vad_model)
     pipeline.to(torch.device("cuda"))
 
