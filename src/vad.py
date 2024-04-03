@@ -8,6 +8,7 @@ import logging
 import tqdm
 import torch
 import hydra
+import subprocess
 from omegaconf import DictConfig
 from pyannote.audio import Model
 from pyannote.audio.pipelines import VoiceActivityDetection
@@ -18,7 +19,7 @@ logging.basicConfig(
 )
 
 
-def get_vad_segments(vad_model: str, audio_dir: str):
+def get_vad_segments(vad_model: str, audio_dir: str, vad_out_dir: str):
 
     logging.info("loading model...")
 
@@ -36,12 +37,12 @@ def get_vad_segments(vad_model: str, audio_dir: str):
 
     audio_files = os.listdir(audio_dir)
 
-    os.makedirs("/workspace/output", exist_ok=True)
+    os.makedirs(vad_out_dir, exist_ok=True)
     for filename in tqdm.tqdm(audio_files):
         curr_dir = os.path.join(audio_dir, filename)
         vid_name = os.path.splitext(filename)[0]
 
-        with open(f"/workspace/output/{vid_name}.txt", "w") as out_file:
+        with open(f"{vad_out_dir}/{vid_name}.txt", "w") as out_file:
             writer = csv.writer(
                 out_file, delimiter=",", quotechar='"', quoting=csv.QUOTE_MINIMAL
             )
@@ -87,13 +88,50 @@ def split_audio(out_dir: str, vad_segments: str, audio_dir: str):
         #     continue
 
 
+def resample_audio(file_dir: str, out_dir: str):
+    os.makedirs(out_dir, exist_ok=True)
+
+    logging.info("Resampling audio...")
+    for audio_file in tqdm.tqdm(os.listdir(file_dir)):
+        file_ext = os.path.splitext(audio_file)[1]
+        subprocess.call(
+            f"ffmpeg -i {file_dir}/{audio_file} -ar 16000 -ac 1 -b:a 256k {out_dir}/{audio_file.replace(file_ext,'.wav')}",
+            shell=True,
+        )
+        # try:
+        #     os.remove(os.path.join(file_dir, audio_file))
+        #     print(f"Removed original video")
+        # except Exception as e:
+        #     print(f"Failed to remove original video, error = {e}")
+        #     continue
+
+    logging.info(f"Finished resampling audio... saved to {out_dir}")
+
+    import shutil
+
+    shutil.rmtree(file_dir)
+    logging.info(f"Removed files in {file_dir}")
+
+
 @hydra.main(config_path="../conf", config_name="vad")
 def main(cfg: DictConfig):
-    get_vad_segments(vad_model=cfg.vad.model, audio_dir=cfg.vad.audio_dir)
+
+    audio_dir = cfg.vad.audio_dir
+    vad_segments_dir = cfg.vad.segments_out_dir
+    vad_splits_outdir = cfg.split.out_dir
+    get_vad_segments(
+        vad_model=cfg.vad.model,
+        audio_dir=audio_dir,
+        vad_out_dir=vad_segments_dir,
+    )
     split_audio(
-        out_dir=cfg.split.out_dir,
-        vad_segments=cfg.split.vad_segments,
-        audio_dir=cfg.vad.audio_dir,
+        out_dir=vad_splits_outdir,
+        vad_segments=vad_segments_dir,
+        audio_dir=audio_dir,
+    )
+    resample_audio(
+        file_dir=vad_splits_outdir,
+        out_dir=cfg.resample.out_dir,
     )
 
 
